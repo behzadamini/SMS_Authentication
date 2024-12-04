@@ -11,9 +11,9 @@ class Authenticator:
     """
 
     # Static configuration for SMS service
-    sms_username = "9189629604"
-    sms_apikey = "sf2xGcOmQvLuu5BkW5SCcOIrqJdzVKJIfdKMcscEhGrTyhWZ"
-    sms_linenumber = "30007732903082"
+    sms_username = "*****"
+    sms_apikey = "*****"
+    sms_linenumber = "********"
     sms_text = "کاربر گرامی کد تأیید شما : "
 
     # Redis client for storing verification codes

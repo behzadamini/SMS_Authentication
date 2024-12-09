@@ -4,91 +4,94 @@ import redis
 from urllib.parse import quote
 import http.client
 
+
 class Authenticator:
-    """
-    A class to handle SMS-based authentication using Redis for temporary code storage
-    and an external SMS API for sending verification codes.
-    """
+    # Class-level constants
+    SMS_USERNAME = "9189629604"
+    SMS_APIKEY = "sf2xGcOmQvLuu5BkW5SCcOIrqJdzVKJIfdKMcscEhGrTyhWZ"
+    SMS_LINENUMBER = "30007732903082"
+    SMS_TEXT = "کاربر گرامی کد تأیید شما: "
 
-    # Static configuration for SMS service
-    sms_username = "*****"
-    sms_apikey = "*****"
-    sms_linenumber = "********"
-    sms_text = "کاربر گرامی کد تأیید شما : "
+    # Redis client initialization
+    redis_client = redis.StrictRedis(
+        host='localhost', port=6379, db=0, decode_responses=True
+    )
 
-    # Redis client for storing verification codes
-    redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+    @staticmethod
+    def send_sms(phone_number):
+        """Sends a verification SMS to the given phone number."""
+        # Check if a code is already sent to this number
+        if Authenticator.redis_client.exists(f'verification:{phone_number}'):
+            return {
+                "status": "error",
+                "message": "کاربر گرامی، قبلاً برای شما کد ارسال شده است."
+            }
 
-    def __init__(self, phone_number):
-        """
-        Initialize the authenticator for a given phone number.
-        A random verification code is generated.
-        """
-        self.phone_number = phone_number
-        self.verify_code = 0
+        # Generate a new verification code
+        verify_code = str(random.randint(100000, 999999))
+        message_text = f"{Authenticator.SMS_TEXT}{verify_code}"
 
-        # Store the generated code in Redis with expiration
-        self.store_verification_code()
-
-    def send_sms(self):
-        """
-        Sends the verification SMS to the user if not already sent.
-        """
-        # Check if a code is already stored for this phone number
-        stored_code = Authenticator.redis_client.get(f'verification:{self.phone_number}')
-        if stored_code:
-            return {"status": "error", "message": "کاربر گرامی قبلاً برای شما کد ارسال شده است."}
-
-        self.verify_code = random.randint(100000, 999999)
-
-        # Prepare the SMS message
-        message_text = Authenticator.sms_text + str(self.verify_code)
-
-        # Configure the HTTP request for the SMS API
+        # Prepare the API request
         conn = http.client.HTTPSConnection("api.sms.ir")
         request_url = (
             f"/v1/send?"
-            f"username={quote(Authenticator.sms_username)}&password={quote(Authenticator.sms_apikey)}&"
-            f"mobile={quote(self.phone_number)}&line={quote(Authenticator.sms_linenumber)}&"
+            f"username={quote(Authenticator.SMS_USERNAME)}&password={quote(Authenticator.SMS_APIKEY)}&"
+            f"mobile={quote(phone_number)}&line={quote(Authenticator.SMS_LINENUMBER)}&"
             f"text={quote(message_text)}"
         )
         headers = {'Accept': 'text/plain'}
 
         try:
-            # Send the HTTP GET request
+            # Send the request
             conn.request("GET", request_url, '', headers)
             response = conn.getresponse()
-            response_data = response.read().decode("utf-8")
 
             # Handle the response
             if response.status == 200:
-                self.store_verification_code()
-                return {"status": "success", "message": "کد تأیید با موفقیت ارسال شد."}
+                Authenticator.store_verification_code(phone_number, verify_code)
+                return {
+                    "status": "success",
+                    "message": "کد تأیید با موفقیت ارسال شد."
+                }
             else:
-                return {"status": "error", "message": f"کد تأیید ارسال نشد: {response_data}"}
+                return {
+                    "status": "error",
+                    "message": f"خطا در ارسال کد: {response.read().decode('utf-8')}"
+                }
 
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "message": f"خطای ارسال کد: {str(e)}"
+            }
 
-    def verify_sms(self, entered_code):
-        """
-        Verifies the user-entered code against the stored code in Redis.
-        """
-        # Retrieve the stored code from Redis
-        stored_code = Authenticator.redis_client.get(f'verification:{self.phone_number}')
-        print(stored_code)
-        print(entered_code)
-        if not stored_code:
-            return {"status": "error", "message": "کد شما نامعتبر است."}
+    @staticmethod
+    def verify_code(phone_number, entered_code):
+        """Verifies the entered code against the stored code."""
+        # Retrieve the stored verification code
+        stored_code = Authenticator.redis_client.get(f'verification:{phone_number}')
 
-        # Compare the entered code with the stored code
-        if stored_code.decode() == entered_code:
-            return {"status": "success", "message": "کد شما تأیید شد."}
+        if stored_code is None:
+            return {
+                "status": "error",
+                "message": "کد تأیید یافت نشد یا منقضی شده است."
+            }
+
+        # Compare the codes
+        if stored_code == entered_code:
+            return {
+                "status": "success",
+                "message": "کد شما تأیید شد."
+            }
         else:
-            return {"status": "error", "message": "کد شما نا معتبر است..."}
+            return {
+                "status": "error",
+                "message": "کد واردشده معتبر نیست."
+            }
 
-    def store_verification_code(self):
-        """
-        Stores the verification code in Redis with a 20-second expiration.
-        """
-        Authenticator.redis_client.setex(f'verification:{self.phone_number}', 60, self.verify_code)
+    @staticmethod
+    def store_verification_code(phone_number, verify_code):
+        """Stores the verification code in Redis with a 2-minute expiry."""
+        Authenticator.redis_client.setex(
+            f'verification:{phone_number}', 120, verify_code
+        )

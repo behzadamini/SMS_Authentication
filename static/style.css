@@ -1,0 +1,7 @@
+body {
+    font-family: "Vazir", sans-serif;
+}
+.card {
+    max-width: 400px;
+    margin: 0 auto;
+}
